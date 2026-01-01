@@ -31,6 +31,39 @@ FOLLOW_BOOT_SECONDS="${FOLLOW_BOOT_SECONDS:-0}"
 
 mkdir -p "$LABDIR" "$WORKDIR"
 
+fix_kvm_access() {
+  echo "[*] Ensure /dev/kvm permissions for user $(id -un)..."
+  if [ ! -e /dev/kvm ]; then
+    echo "ERROR: /dev/kvm not found." >&2
+    exit 20
+  fi
+
+  sudo groupadd -f kvm
+  sudo usermod -aG kvm "$(id -un)" || true
+
+  # Keep udev rule present (persistent)
+  sudo tee /etc/udev/rules.d/99-kvm.rules >/dev/null <<'EOF'
+KERNEL=="kvm", GROUP="kvm", MODE="0660"
+EOF
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger --name-match=kvm || true
+
+  # Force NOW
+  sudo chgrp kvm /dev/kvm || true
+  sudo chmod 0660 /dev/kvm || true
+  sudo setfacl -m u:"$(id -un)":rw /dev/kvm || true
+
+  # Verify rw-open works (what Firecracker needs)
+  if ! bash -lc 'exec 3<>/dev/kvm' >/dev/null 2>&1; then
+    echo "ERROR: still cannot open /dev/kvm rw as $(id -un)." >&2
+    echo "---- /dev/kvm ----" >&2
+    ls -l /dev/kvm >&2 || true
+    getfacl -p /dev/kvm >&2 || true
+    exit 21
+  fi
+  echo "    OK: /dev/kvm rw-open works"
+}
+
 api_put() {
   local path="$1"
   local json="$2"
@@ -69,23 +102,7 @@ api_put() {
   return 0
 }
 
-echo "[*] Ensure /dev/kvm access is correct (persistent + immediate)..."
-sudo groupadd -f kvm
-sudo usermod -aG kvm "$(id -un)" || true
-sudo tee /etc/udev/rules.d/99-kvm.rules >/dev/null <<'EOF'
-KERNEL=="kvm", GROUP="kvm", MODE="0660"
-EOF
-sudo udevadm control --reload-rules
-sudo udevadm trigger --name-match=kvm || true
-
-# If still not writable, set an ACL for this user (covers current session without relogin)
-if [ -e /dev/kvm ] && [ ! -w /dev/kvm ]; then
-  sudo setfacl -m u:"$(id -un)":rw /dev/kvm || true
-fi
-
-echo "[*] /dev/kvm:"
-ls -l /dev/kvm || true
-getfacl -p /dev/kvm 2>/dev/null | sed -n '1,20p' || true
+fix_kvm_access
 
 echo "[*] Ensure kernel exists..."
 if [ ! -f "$KERNEL" ]; then
@@ -136,17 +153,16 @@ if [ ! -S "$SOCK" ]; then
 fi
 
 echo "[*] Configure microVM..."
-
 api_put "/machine-config" '{"vcpu_count":2,"mem_size_mib":1024,"smt":false}'
-
 api_put "/boot-source" "$(jq -cn --arg k "$KERNEL" \
   '{"kernel_image_path":$k,"boot_args":"console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw init=/sbin/init"}')"
-
 api_put "/drives/rootfs" "$(jq -cn --arg p "$ROOTFS" \
   '{"drive_id":"rootfs","path_on_host":$p,"is_root_device":true,"is_read_only":false}')"
-
 api_put "/network-interfaces/eth0" "$(jq -cn --arg tap "$TAP" \
   '{"iface_id":"eth0","host_dev_name":$tap,"guest_mac":"02:FC:00:00:00:01"}')"
+
+# Re-check right before start (covers /dev/kvm being recreated mid-run)
+fix_kvm_access
 
 api_put "/actions" '{"action_type":"InstanceStart"}'
 
