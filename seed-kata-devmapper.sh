@@ -10,7 +10,7 @@ POOL="${POOL:-thinpool}"
 # Safety switch:
 # - ALLOW_WIPE=1: wipe/recreate PV+VG+thinpool on DEV
 # - ALLOW_WIPE=0: do NOT wipe; fail if DEV has signatures or VG exists
-ALLOW_WIPE="${ALLOW_WIPE:-0}"
+ALLOW_WIPE="${ALLOW_WIPE:-1}"
 
 # LVM thinpool metadata spare:
 # - 1 (default): keep metadata spare (recommended) => must reserve extra space
@@ -27,7 +27,7 @@ BASE_IMAGE_SIZE="${BASE_IMAGE_SIZE:-}"
 TMPL_DIR="${TMPL_DIR:-/var/lib/rancher/rke2/agent/etc/containerd}"
 TMPL_V2="${TMPL_V2:-${TMPL_DIR}/config.toml.tmpl}"
 TMPL_V3="${TMPL_V3:-${TMPL_DIR}/config-v3.toml.tmpl}"
-WRITE_V3="${WRITE_V3:-1}"
+WRITE_V3="${WRITE_V3:-0}"
 
 MARKER_BEGIN="# --- BEGIN golden-image devmapper config ---"
 MARKER_END="# --- END golden-image devmapper config ---"
