@@ -7,181 +7,130 @@ DEV="${DEV:-/dev/sdb}"
 VG="${VG:-vg_devmapper}"
 POOL="${POOL:-thinpool}"
 
-# Safety: by default we DO NOT wipe /dev/sdb if it looks in use.
-# Set ALLOW_WIPE=1 to force re-initialization.
-ALLOW_WIPE="${ALLOW_WIPE:-1}"
+# Safety switch:
+# - ALLOW_WIPE=1: wipe/recreate PV+VG+thinpool on DEV
+# - ALLOW_WIPE=0: do NOT wipe; fail if DEV has signatures or VG exists
+ALLOW_WIPE="${ALLOW_WIPE:-0}"
 
-# Containerd devmapper snapshotter config
+# LVM thinpool metadata spare:
+# - 1 (default): keep metadata spare (recommended) => must reserve extra space
+# - 0: disable spare (saves space)
+ENABLE_META_SPARE="${ENABLE_META_SPARE:-1}"
+
+# Where containerd devmapper snapshotter stores state (RKE2 root)
 DEVMAPPER_ROOT="${DEVMAPPER_ROOT:-/var/lib/rancher/rke2/agent/containerd/io.containerd.snapshotter.v1.devmapper}"
 
-# If BASE_IMAGE_SIZE is NOT set, it will be computed from /dev/sdb size.
-# (So no default hardcode here.)
+# If BASE_IMAGE_SIZE is empty, it will be computed from thinpool DATA LV size.
 BASE_IMAGE_SIZE="${BASE_IMAGE_SIZE:-}"
 
-# RKE2 template locations (we write both to be resilient; RKE2 uses v3 today)
+# RKE2 template locations (write both v2 and v3 for resilience)
 TMPL_DIR="${TMPL_DIR:-/var/lib/rancher/rke2/agent/etc/containerd}"
-#TMPL_V3="${TMPL_V3:-${TMPL_DIR}/config-v3.toml.tmpl}"
-TMPL_V2="${TMPL_V2:-${TMPL_DIR}/config.toml.tmpl}"  # harmless if unused
+TMPL_V2="${TMPL_V2:-${TMPL_DIR}/config.toml.tmpl}"
+TMPL_V3="${TMPL_V3:-${TMPL_DIR}/config-v3.toml.tmpl}"
+WRITE_V3="${WRITE_V3:-1}"
 
 MARKER_BEGIN="# --- BEGIN golden-image devmapper config ---"
 MARKER_END="# --- END golden-image devmapper config ---"
 
-# kata runtime name as seen by containerd config tables
+# kata runtime name (as you use in RuntimeClass)
 KATA_RUNTIME_NAME="${KATA_RUNTIME_NAME:-kata-fc}"
-# Use the CRI v1 runtime namespace (matches your working RKE2-generated config)
 KATA_CRI_TABLE="${KATA_CRI_TABLE:-plugins.\"io.containerd.cri.v1.runtime\".containerd.runtimes.${KATA_RUNTIME_NAME}}"
 
-# Thinpool sizing policy:
-# - metadata_pct of disk, clamped to [meta_min .. meta_max]
-# - slack left unallocated
-META_PCT="${META_PCT:-3}"                       # percent
-META_MIN_BYTES="${META_MIN_BYTES:-268435456}"   # 256MiB
-META_MAX_BYTES="${META_MAX_BYTES:-2147483648}"  # 2GiB
-SLACK_BYTES="${SLACK_BYTES:-67108864}"          # 64MiB slack
+# Thinpool sizing policy (extent-safe)
+META_PCT="${META_PCT:-3}"              # % of VG free space for metadata
+META_MIN_MIB="${META_MIN_MIB:-256}"    # clamp
+META_MAX_MIB="${META_MAX_MIB:-2048}"   # clamp
 
-# base_image_size auto policy (only used if BASE_IMAGE_SIZE is empty):
-# - base ~= BASE_PCT of thinpool data bytes
-# - clamped to [BASE_MIN .. BASE_MAX]
-# - must be <= (data_bytes - BASE_RESERVE)
-BASE_PCT="${BASE_PCT:-60}"                      # percent of thinpool data
-BASE_MIN_BYTES="${BASE_MIN_BYTES:-4294967296}"  # 4GiB
-BASE_MAX_BYTES="${BASE_MAX_BYTES:-34359738368}" # 32GiB
-BASE_RESERVE_BYTES="${BASE_RESERVE_BYTES:-1073741824}" # 1GiB reserved
+# Leave some free space in VG
+SLACK_MIB="${SLACK_MIB:-256}"
+
+# Extra PE safety margin for rounding/overhead
+SAFETY_PES="${SAFETY_PES:-32}"
+
+# base_image_size auto policy (only if BASE_IMAGE_SIZE empty):
+BASE_PCT="${BASE_PCT:-60}"             # % of thinpool DATA LV
+BASE_MIN_GIB="${BASE_MIN_GIB:-4}"
+BASE_MAX_GIB="${BASE_MAX_GIB:-32}"
+BASE_RESERVE_GIB="${BASE_RESERVE_GIB:-1}"  # leave headroom
 # =======================================================
 
 log() { echo "[seed-prep] $*"; }
 die() { echo "[seed-prep] ERROR: $*" >&2; exit 1; }
 
 need_root() {
-  if [[ "${EUID}" -ne 0 ]]; then
-    die "run as root (sudo)"
-  fi
+  [[ "${EUID}" -eq 0 ]] || die "run as root (sudo)"
 }
 
-bytes_of() {
-  blockdev --getsize64 -q "$1"
+# Round up MiB to whole extents (given PE size in MiB)
+mib_to_pes_ceil() {
+  local mib="$1" pe_mib="$2"
+  echo $(( (mib + pe_mib - 1) / pe_mib ))
 }
 
-clamp() {
-  local v="$1" mn="$2" mx="$3"
-  (( v < mn )) && v="$mn"
-  (( v > mx )) && v="$mx"
-  echo "$v"
+# Convert extents to MiB
+pes_to_mib() {
+  local pes="$1" pe_mib="$2"
+  echo $(( pes * pe_mib ))
 }
 
-to_mib_floor() {
+bytes_to_gib_floor() {
   local b="$1"
-  echo $(( (b / 1048576) * 1048576 ))
+  echo $(( b / 1073741824 ))
 }
 
-bytes_to_lvm_suffix() {
-  local b="$1"
-  local mib=$(( b / 1048576 ))
-  (( mib <= 0 )) && die "computed size too small (${b} bytes)"
-  echo "${mib}M"
-}
-
-bytes_to_gib_str() {
-  # Emit in "GB" style as used in most devmapper examples, but computed in GiB units.
-  # Example: 8589934592 -> "8GB"
-  local b="$1"
-  local gib=$(( b / 1073741824 ))
-  (( gib <= 0 )) && die "computed GiB too small (${b} bytes)"
-  echo "${gib}GB"
-}
-
-is_mounted_or_used() {
+device_has_sigs() {
   local dev="$1"
-
-  if findmnt -rn -S "$dev" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  # has child nodes (partitions)
-  if lsblk -n -o NAME "$dev" | awk 'NR>1 {exit 0} END{exit 1}'; then
-    return 0
-  fi
-
-  # any signatures
-  if wipefs -n "$dev" 2>/dev/null | grep -q .; then
-    return 0
-  fi
-
-  return 1
+  wipefs -n "$dev" 2>/dev/null | grep -q .
 }
 
-# These will be set during ensure_thinpool() so template_block can use them.
 POOL_DM_NAME=""
 COMPUTED_BASE_IMAGE_SIZE=""
 
-ensure_thinpool() {
-  log "Ensuring dm modules present"
-  modprobe dm_mod 2>/dev/null || true
-  modprobe dm_thin_pool 2>/dev/null || true
-
-  [[ -b "$DEV" ]] || die "device not found: $DEV"
-
-  local disk_bytes
-  disk_bytes="$(bytes_of "$DEV")"
-  log "Detected $DEV size: $disk_bytes bytes"
-
-  POOL_DM_NAME="${VG}-${POOL}"
-
-  # If VG+POOL already exist, compute base_image_size from existing pool size and exit.
-  if vgs --noheadings -o vg_name 2>/dev/null | awk '{print $1}' | grep -qx "$VG" \
-     && lvs --noheadings -o lv_name "$VG" 2>/dev/null | awk '{print $1}' | grep -qx "$POOL"
-  then
-    log "VG/LV already exist: ${VG}/${POOL} (leaving as-is)"
-    # Try to approximate data_bytes from LV size
-    local lv_bytes
-    lv_bytes="$(lvs --noheadings --units b -o lv_size "$VG/$POOL" | tr -d ' B')"
-    compute_base_image_size "$lv_bytes"
+cleanup_existing_lvm_if_allowed() {
+  if [[ "$ALLOW_WIPE" != "1" ]]; then
     return 0
   fi
 
-  if is_mounted_or_used "$DEV" && [[ "$ALLOW_WIPE" != "1" ]]; then
-    die "$DEV looks in-use (mounted/has signatures/partitions). Set ALLOW_WIPE=1 to wipe and recreate."
+  # If VG exists, nuke it.
+  if vgs --noheadings -o vg_name 2>/dev/null | awk '{print $1}' | grep -qx "$VG"; then
+    log "ALLOW_WIPE=1: removing existing VG '${VG}'"
+    vgchange -an "$VG" 2>/dev/null || true
+    vgremove -ff "$VG" 2>/dev/null || true
   fi
 
-  # Compute metadata bytes ~META_PCT% of disk, clamped
-  local raw_meta meta_bytes
-  raw_meta=$(( disk_bytes * META_PCT / 100 ))
-  meta_bytes="$(clamp "$raw_meta" "$META_MIN_BYTES" "$META_MAX_BYTES")"
-  meta_bytes="$(to_mib_floor "$meta_bytes")"
-
-  # Data bytes = disk - meta - slack - overhead
-  local overhead_bytes=67108864  # 64MiB overhead for PV/VG internal allocations
-  local data_bytes=$(( disk_bytes - meta_bytes - SLACK_BYTES - overhead_bytes ))
-
-  (( data_bytes > 1073741824 )) || die "computed data size too small (<1GiB). disk=${disk_bytes}, meta=${meta_bytes}"
-  data_bytes="$(to_mib_floor "$data_bytes")"
-
-  log "Sizing: meta=${meta_bytes} bytes, data=${data_bytes} bytes, slack=${SLACK_BYTES} bytes"
-
-  # Compute base_image_size from data_bytes unless user set BASE_IMAGE_SIZE explicitly.
-  compute_base_image_size "$data_bytes"
-
-  local meta_size data_size
-  meta_size="$(bytes_to_lvm_suffix "$meta_bytes")"
-  data_size="$(bytes_to_lvm_suffix "$data_bytes")"
-
-  log "Wiping signatures on $DEV (ALLOW_WIPE=${ALLOW_WIPE})"
-  wipefs -a "$DEV" || true
-  sgdisk --zap-all "$DEV" 2>/dev/null || true
-
-  log "Creating PV/VG on $DEV"
-  pvcreate "$DEV"
-  vgcreate "$VG" "$DEV"
-
-  log "Creating thinpool: ${VG}/${POOL} (data=${data_size}, meta=${meta_size})"
-  lvcreate -L "$data_size" --type thin-pool -n "$POOL" --poolmetadatasize "$meta_size" "$VG"
-
-  log "Thinpool created:"
-  lvs -a -o+segtype,lv_size,data_percent,metadata_percent,devices "$VG"
+  # Remove any PV label.
+  pvremove -ff "$DEV" 2>/dev/null || true
 }
 
-compute_base_image_size() {
-  local data_bytes="$1"
+wipe_disk_if_allowed() {
+  if [[ "$ALLOW_WIPE" != "1" ]]; then
+    return 0
+  fi
+  log "ALLOW_WIPE=1: wiping signatures/GPT on $DEV"
+  wipefs -a "$DEV" || true
+  sgdisk --zap-all "$DEV" 2>/dev/null || true
+}
+
+get_vg_pe_mib() {
+  # vgs extent size in bytes -> MiB
+  local pe_bytes
+  pe_bytes="$(vgs --noheadings --units b --nosuffix -o vg_extent_size "$VG" 2>/dev/null | awk '{print $1}' | head -n 1)"
+  [[ -n "$pe_bytes" && "$pe_bytes" =~ ^[0-9]+$ ]] || return 1
+  local pe_mib=$(( pe_bytes / 1048576 ))
+  (( pe_mib > 0 )) || return 1
+  echo "$pe_mib"
+}
+
+get_vg_free_pe() {
+  local free_pe
+  free_pe="$(vgs --noheadings -o vg_free_count "$VG" 2>/dev/null | awk '{print $1}' | head -n 1)"
+  [[ -n "$free_pe" && "$free_pe" =~ ^[0-9]+$ ]] || return 1
+  (( free_pe > 0 )) || return 1
+  echo "$free_pe"
+}
+
+compute_base_image_size_from_pool_bytes() {
+  local pool_bytes="$1"
 
   if [[ -n "$BASE_IMAGE_SIZE" ]]; then
     COMPUTED_BASE_IMAGE_SIZE="$BASE_IMAGE_SIZE"
@@ -189,28 +138,118 @@ compute_base_image_size() {
     return 0
   fi
 
-  # base = BASE_PCT% of data_bytes
-  local raw_base=$(( data_bytes * BASE_PCT / 100 ))
+  local pool_gib
+  pool_gib="$(bytes_to_gib_floor "$pool_bytes")"
+  (( pool_gib > (BASE_MIN_GIB + BASE_RESERVE_GIB) )) || die "thinpool too small for base_image policy: pool_gib=${pool_gib}"
 
-  # clamp to min/max
-  local base_bytes
-  base_bytes="$(clamp "$raw_base" "$BASE_MIN_BYTES" "$BASE_MAX_BYTES")"
+  local raw_base_gib base_gib max_allowed
+  raw_base_gib=$(( pool_gib * BASE_PCT / 100 ))
 
-  # ensure base <= data_bytes - reserve
-  local max_allowed=$(( data_bytes - BASE_RESERVE_BYTES ))
-  if (( max_allowed < BASE_MIN_BYTES )); then
-    die "thinpool data size too small to satisfy BASE_MIN_BYTES after reserve. data=${data_bytes}"
+  base_gib="$raw_base_gib"
+  (( base_gib < BASE_MIN_GIB )) && base_gib="$BASE_MIN_GIB"
+  (( base_gib > BASE_MAX_GIB )) && base_gib="$BASE_MAX_GIB"
+
+  max_allowed=$(( pool_gib - BASE_RESERVE_GIB ))
+  (( base_gib > max_allowed )) && base_gib="$max_allowed"
+  (( base_gib >= BASE_MIN_GIB )) || base_gib="$BASE_MIN_GIB"
+
+  COMPUTED_BASE_IMAGE_SIZE="${base_gib}GB"
+  log "Computed BASE_IMAGE_SIZE from thinpool: ${COMPUTED_BASE_IMAGE_SIZE} (pool_gib=${pool_gib}, policy=${BASE_PCT}%)"
+}
+
+ensure_thinpool() {
+  log "Ensuring dm modules present"
+  modprobe dm_mod 2>/dev/null || true
+  modprobe dm_thin_pool 2>/dev/null || true
+
+  [[ -b "$DEV" ]] || die "device not found: $DEV"
+  POOL_DM_NAME="${VG}-${POOL}"
+
+  # Idempotent case: if VG+POOL exist, just compute base_image and return.
+  if vgs --noheadings -o vg_name 2>/dev/null | awk '{print $1}' | grep -qx "$VG" \
+     && lvs --noheadings -o lv_name "$VG" 2>/dev/null | awk '{print $1}' | grep -qx "$POOL"
+  then
+    log "VG/LV already exist: ${VG}/${POOL} (leaving as-is)"
+    local pool_bytes
+    pool_bytes="$(lvs --noheadings --units b -o lv_size "$VG/$POOL" | tr -d ' B')"
+    compute_base_image_size_from_pool_bytes "$pool_bytes"
+    return 0
   fi
-  if (( base_bytes > max_allowed )); then
-    base_bytes="$max_allowed"
+
+  # Safety checks when not wiping
+  if [[ "$ALLOW_WIPE" != "1" ]]; then
+    if device_has_sigs "$DEV"; then
+      die "$DEV has signatures. Refusing to modify because ALLOW_WIPE=0. (Set ALLOW_WIPE=1 to reinitialize.)"
+    fi
+    if vgs --noheadings -o vg_name 2>/dev/null | awk '{print $1}' | grep -qx "$VG"; then
+      die "VG '${VG}' exists. Refusing because ALLOW_WIPE=0."
+    fi
   fi
 
-  # Round down to whole GiB for clean config values
-  base_bytes=$(( (base_bytes / 1073741824) * 1073741824 ))
-  (( base_bytes >= BASE_MIN_BYTES )) || base_bytes="$BASE_MIN_BYTES"
+  cleanup_existing_lvm_if_allowed
+  wipe_disk_if_allowed
 
-  COMPUTED_BASE_IMAGE_SIZE="$(bytes_to_gib_str "$base_bytes")"
-  log "Computed BASE_IMAGE_SIZE from $DEV/pool data: ${COMPUTED_BASE_IMAGE_SIZE} (policy: ${BASE_PCT}% clamped)"
+  log "Creating PV/VG on $DEV"
+  pvcreate "$DEV"
+  vgcreate "$VG" "$DEV"
+
+  # refresh nodes/cache (helps after wipes)
+  pvscan --cache 2>/dev/null || true
+  vgscan --mknodes 2>/dev/null || true
+
+  local pe_mib free_pe
+  pe_mib="$(get_vg_pe_mib)" || die "failed to determine PE size for ${VG} (if you see 'missing device' warnings, you may need to clear /etc/lvm/devices/system.devices)"
+  free_pe="$(get_vg_free_pe)" || die "failed to determine free PE count for ${VG}"
+
+  log "VG PE size: ${pe_mib}MiB, free PEs: ${free_pe}"
+
+  local vg_free_mib raw_meta_mib meta_mib
+  vg_free_mib="$(pes_to_mib "$free_pe" "$pe_mib")"
+  raw_meta_mib=$(( vg_free_mib * META_PCT / 100 ))
+
+  meta_mib="$raw_meta_mib"
+  (( meta_mib < META_MIN_MIB )) && meta_mib="$META_MIN_MIB"
+  (( meta_mib > META_MAX_MIB )) && meta_mib="$META_MAX_MIB"
+
+  local meta_pe slack_pe spare_pe
+  meta_pe="$(mib_to_pes_ceil "$meta_mib" "$pe_mib")"
+  slack_pe="$(mib_to_pes_ceil "$SLACK_MIB" "$pe_mib")"
+
+  if [[ "$ENABLE_META_SPARE" == "1" ]]; then
+    # LVM thin-pool metadata spare usually matches metadata LV sizing in extents.
+    spare_pe="$meta_pe"
+  else
+    spare_pe=0
+  fi
+
+  # Available extents for pool DATA after reserving:
+  #   slack + safety + metadata + (optional) meta spare
+  local usable_for_pool_pe data_pe
+  usable_for_pool_pe=$(( free_pe - slack_pe - SAFETY_PES - meta_pe - spare_pe ))
+  (( usable_for_pool_pe > 0 )) || die "not enough free extents after reservations: free=${free_pe} slack=${slack_pe} safety=${SAFETY_PES} meta=${meta_pe} spare=${spare_pe}"
+
+  data_pe="$usable_for_pool_pe"
+
+  # Convert to MiB for lvcreate
+  local data_mib final_meta_mib
+  data_mib="$(pes_to_mib "$data_pe" "$pe_mib")"
+  final_meta_mib="$(pes_to_mib "$meta_pe" "$pe_mib")"
+
+  log "Sizing (extent-safe): data=${data_mib}MiB (${data_pe} PEs), meta=${final_meta_mib}MiB (${meta_pe} PEs), meta_spare=${spare_pe} PEs, slack≈${SLACK_MIB}MiB, safety=${SAFETY_PES} PEs"
+
+  log "Creating thinpool: ${VG}/${POOL} (meta spare: ${ENABLE_META_SPARE})"
+  if [[ "$ENABLE_META_SPARE" == "1" ]]; then
+    lvcreate -L "${data_mib}M" --type thin-pool -n "$POOL" --poolmetadatasize "${final_meta_mib}M" --poolmetadataspare y "$VG"
+  else
+    lvcreate -L "${data_mib}M" --type thin-pool -n "$POOL" --poolmetadatasize "${final_meta_mib}M" --poolmetadataspare n "$VG"
+  fi
+
+  log "Thinpool created:"
+  lvs -a -o+segtype,lv_size,data_percent,metadata_percent,devices "$VG"
+
+  local pool_bytes
+  pool_bytes="$(lvs --noheadings --units b -o lv_size "$VG/$POOL" | tr -d ' B')"
+  compute_base_image_size_from_pool_bytes "$pool_bytes"
 }
 
 template_block() {
@@ -232,7 +271,6 @@ EOF
 
 ensure_template_file() {
   local tmpl="$1"
-
   mkdir -p "$(dirname "$tmpl")"
 
   if [[ -f "$tmpl" ]]; then
@@ -263,17 +301,17 @@ main() {
 
   log "Step 2/2: Precreate RKE2 containerd template path + templates"
   mkdir -p "$TMPL_DIR"
-  #ensure_template_file "$TMPL_V3"
   ensure_template_file "$TMPL_V2"
+  if [[ "$WRITE_V3" == "1" ]]; then
+    ensure_template_file "$TMPL_V3"
+  fi
 
   log "Done."
-  log "Thinpool DM name (use as pool_name): ${POOL_DM_NAME}"
+  log "Thinpool DM name (pool_name): ${POOL_DM_NAME}"
   log "base_image_size: ${COMPUTED_BASE_IMAGE_SIZE}"
-  log "Template written:"
-  #log "  $TMPL_V3"
+  log "Templates:"
   log "  $TMPL_V2"
-  log "=================="
-  sudo lvs -a -o+segtype,lv_size,data_percent,metadata_percent,devices vg_devmapper
+  [[ "$WRITE_V3" == "1" ]] && log "  $TMPL_V3"
 }
 
 main "$@"
