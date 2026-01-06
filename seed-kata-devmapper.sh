@@ -23,18 +23,9 @@ DEVMAPPER_ROOT="${DEVMAPPER_ROOT:-/var/lib/rancher/rke2/agent/containerd/io.cont
 # If BASE_IMAGE_SIZE is empty, it will be computed from thinpool DATA LV size.
 BASE_IMAGE_SIZE="${BASE_IMAGE_SIZE:-}"
 
-# RKE2 template locations (write both v2 and v3 for resilience)
+# RKE2 template location (v3 only)
 TMPL_DIR="${TMPL_DIR:-/var/lib/rancher/rke2/agent/etc/containerd}"
-TMPL_V2="${TMPL_V2:-${TMPL_DIR}/config.toml.tmpl}"
 TMPL_V3="${TMPL_V3:-${TMPL_DIR}/config-v3.toml.tmpl}"
-WRITE_V3="${WRITE_V3:-0}"
-
-MARKER_BEGIN="# --- BEGIN golden-image devmapper config ---"
-MARKER_END="# --- END golden-image devmapper config ---"
-
-# kata runtime name (as you use in RuntimeClass)
-KATA_RUNTIME_NAME="${KATA_RUNTIME_NAME:-kata-fc}"
-KATA_CRI_TABLE="${KATA_CRI_TABLE:-plugins.\"io.containerd.cri.v1.runtime\".containerd.runtimes.${KATA_RUNTIME_NAME}}"
 
 # Thinpool sizing policy (extent-safe)
 META_PCT="${META_PCT:-3}"              # % of VG free space for metadata
@@ -254,43 +245,35 @@ ensure_thinpool() {
 
 template_block() {
   cat <<EOF
-${MARKER_BEGIN}
-# Managed by the golden image: enable devmapper snapshotter + map kata runtime to use it.
+# kata containers imports template
+imports = ["/opt/kata/containerd/config.d/kata-deploy.toml"]
+# rendered template begin
 
+{{ template "base" . }}
+
+# rendered template end
+# devmapper /dev/sdb (xfs raw drive)
 [plugins."io.containerd.snapshotter.v1.devmapper"]
   pool_name = "${POOL_DM_NAME}"
   root_path = "${DEVMAPPER_ROOT}"
   base_image_size = "${COMPUTED_BASE_IMAGE_SIZE}"
-
-[${KATA_CRI_TABLE}]
-  snapshotter = "devmapper"
-
-${MARKER_END}
 EOF
 }
 
-ensure_template_file() {
-  local tmpl="$1"
-  mkdir -p "$(dirname "$tmpl")"
+write_v3_template() {
+  [[ -n "$POOL_DM_NAME" ]] || die "pool device-mapper name not set"
+  [[ -n "$COMPUTED_BASE_IMAGE_SIZE" ]] || die "base_image_size not computed"
 
-  if [[ -f "$tmpl" ]]; then
-    if grep -qF "$MARKER_BEGIN" "$tmpl"; then
-      log "Template already contains managed block: $tmpl"
-      return 0
-    fi
-    log "Appending managed block to: $tmpl"
-    printf "\n%s\n" "$(template_block)" >> "$tmpl"
-    chmod 0644 "$tmpl"
-    return 0
-  fi
+  mkdir -p "$(dirname "$TMPL_V3")"
+  log "Writing containerd config template: $TMPL_V3"
+  template_block > "$TMPL_V3"
+  chmod 0644 "$TMPL_V3"
+}
 
-  log "Creating new template: $tmpl"
-  {
-    echo '{{ template "base" . }}'
-    echo
-    template_block
-  } > "$tmpl"
-  chmod 0644 "$tmpl"
+prepare_kata_import_stub() {
+  log "Ensuring kata-deploy import placeholder"
+  mkdir -p /opt/kata/containerd/config.d
+  touch /opt/kata/containerd/config.d/kata-deploy.toml
 }
 
 main() {
@@ -301,17 +284,14 @@ main() {
 
   log "Step 2/2: Precreate RKE2 containerd template path + templates"
   mkdir -p "$TMPL_DIR"
-  ensure_template_file "$TMPL_V2"
-  if [[ "$WRITE_V3" == "1" ]]; then
-    ensure_template_file "$TMPL_V3"
-  fi
+  prepare_kata_import_stub
+  write_v3_template
 
   log "Done."
   log "Thinpool DM name (pool_name): ${POOL_DM_NAME}"
   log "base_image_size: ${COMPUTED_BASE_IMAGE_SIZE}"
   log "Templates:"
-  log "  $TMPL_V2"
-  [[ "$WRITE_V3" == "1" ]] && log "  $TMPL_V3"
+  log "  $TMPL_V3"
 }
 
 main "$@"
