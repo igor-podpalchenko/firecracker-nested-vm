@@ -100,12 +100,8 @@ shims:
       - amd64
       - arm64
     allowedHypervisorAnnotations: []
-    #containerd:
-      # Firecracker commonly expects devmapper (block-backed) snapshotter.
-      # If devmapper isn't configured in your containerd, pods using kata-fc will fail.
-      # snapshotter: devmapper
     containerd:
-      snapshotter: "overlayfs"
+      snapshotter: devmapper
 
   # Disable duplicates / variants / special modes
   clh:

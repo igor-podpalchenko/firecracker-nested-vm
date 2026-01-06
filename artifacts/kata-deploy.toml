@@ -1,0 +1,73 @@
+[plugins.cri.containerd.runtimes.kata-cloud-hypervisor]
+runtime_type = "io.containerd.kata-cloud-hypervisor.v2"
+runtime_path = "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+
+[plugins.cri.containerd.runtimes.kata-cloud-hypervisor.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-cloud-hypervisor.toml"
+
+[plugins.cri.containerd.runtimes.kata-dragonball]
+runtime_type = "io.containerd.kata-dragonball.v2"
+runtime_path = "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+
+[plugins.cri.containerd.runtimes.kata-dragonball.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-dragonball.toml"
+
+[plugins.cri.containerd.runtimes.kata-fc]
+runtime_type = "io.containerd.kata-fc.v2"
+runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+snapshotter = "devmapper"
+
+[plugins.cri.containerd.runtimes.kata-fc.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/configuration-fc.toml"
+
+[plugins.cri.containerd.runtimes.kata-qemu]
+runtime_type = "io.containerd.kata-qemu.v2"
+runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+
+[plugins.cri.containerd.runtimes.kata-qemu.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/configuration-qemu.toml"
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-cloud-hypervisor]
+runtime_type = "io.containerd.kata-cloud-hypervisor.v2"
+runtime_path = "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-cloud-hypervisor.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-cloud-hypervisor.toml"
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-dragonball]
+runtime_type = "io.containerd.kata-dragonball.v2"
+runtime_path = "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-dragonball.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-dragonball.toml"
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-fc]
+runtime_type = "io.containerd.kata-fc.v2"
+runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+snapshotter = "devmapper"
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-fc.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/configuration-fc.toml"
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-qemu]
+runtime_type = "io.containerd.kata-qemu.v2"
+runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
+privileged_without_host_devices = true
+pod_annotations = ["io.katacontainers.*"]
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.kata-qemu.options]
+ConfigPath = "/opt/kata/share/defaults/kata-containers/configuration-qemu.toml"
