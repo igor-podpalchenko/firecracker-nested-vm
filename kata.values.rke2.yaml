@@ -1,0 +1,236 @@
+debug: false
+defaultShim:
+  amd64: qemu
+  arm64: qemu
+  ppc64le: qemu
+  s390x: qemu
+env:
+  _experimentalForceGuestPull: ''
+  _experimentalForceGuestPull_aarch64: ''
+  _experimentalForceGuestPull_ppc64le: ''
+  _experimentalForceGuestPull_s390x: ''
+  _experimentalForceGuestPull_x86_64: ''
+  _experimentalSetupSnapshotter: ''
+  agentHttpsProxy: ''
+  agentNoProxy: ''
+  allowedHypervisorAnnotations: ''
+  createDefaultRuntimeClass: 'false'
+  createRuntimeClasses: 'false'
+  debug: ''
+  defaultShim: ''
+  defaultShim_aarch64: ''
+  defaultShim_ppc64le: ''
+  defaultShim_s390x: ''
+  defaultShim_x86_64: ''
+  hostOS: ''
+  installationPrefix: ''
+  multiInstallSuffix: ''
+  pullTypeMapping: ''
+  pullTypeMapping_aarch64: ''
+  pullTypeMapping_ppc64le: ''
+  pullTypeMapping_s390x: ''
+  pullTypeMapping_x86_64: ''
+  shims: ''
+  shims_aarch64: ''
+  shims_ppc64le: ''
+  shims_s390x: ''
+  shims_x86_64: ''
+  snapshotterHandlerMapping: ''
+  snapshotterHandlerMapping_aarch64: ''
+  snapshotterHandlerMapping_ppc64le: ''
+  snapshotterHandlerMapping_s390x: ''
+  snapshotterHandlerMapping_x86_64: ''
+image:
+  reference: quay.io/kata-containers/kata-deploy
+  tag: ''
+imagePullPolicy: Always
+imagePullSecrets: []
+k8sDistribution: rke2
+node-feature-discovery:
+  enabled: false
+nodeSelector: {}
+runtimeClasses:
+  createDefault: false
+  defaultName: kata
+  enabled: true
+shims:
+  clh:
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ''
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+  cloud-hypervisor:
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ''
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+  dragonball:
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ''
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+  fc:
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: devmapper
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+  qemu:
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ''
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+      - s390x
+      - ppc64le
+  qemu-cca:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: false
+      snapshotter: nydus
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - arm64
+  qemu-coco-dev:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: false
+      snapshotter: nydus
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - amd64
+      - s390x
+  qemu-coco-dev-runtime-rs:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: false
+      snapshotter: nydus
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - amd64
+      - s390x
+  qemu-nvidia-gpu:
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ''
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+  qemu-nvidia-gpu-snp:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: true
+      snapshotter: ''
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - amd64
+  qemu-nvidia-gpu-tdx:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: true
+      snapshotter: ''
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - amd64
+  qemu-runtime-rs:
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ''
+    enabled: true
+    supportedArches:
+      - amd64
+      - s390x
+  qemu-se:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: false
+      snapshotter: nydus
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - s390x
+  qemu-se-runtime-rs:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: false
+      snapshotter: nydus
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - s390x
+  qemu-snp:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: false
+      snapshotter: nydus
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - amd64
+  qemu-tdx:
+    agent:
+      httpsProxy: ''
+      noProxy: ''
+    allowedHypervisorAnnotations: []
+    containerd:
+      forceGuestPull: false
+      snapshotter: nydus
+    crio:
+      guestPull: true
+    enabled: true
+    supportedArches:
+      - amd64
+snapshotter:
+  setup: []
+tolerations: []
