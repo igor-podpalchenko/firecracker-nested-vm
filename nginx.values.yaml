@@ -1,3 +1,4 @@
+# bitnami https://charts.bitnami.com/bitnami
 affinity: {}
 args: []
 automountServiceAccountToken: false
