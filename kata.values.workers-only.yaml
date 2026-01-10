@@ -1,0 +1,259 @@
+debug: false
+
+# Repo: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy
+# Default runtime for the "default" RuntimeClass (we'll create one named "kata")
+defaultShim:
+  amd64: qemu
+  arm64: qemu
+  ppc64le: qemu
+  s390x: qemu
+
+# These env vars are consumed by kata-deploy's installer script.
+# Setting both the env.* toggles and runtimeClasses.* toggles is a practical "belt + suspenders"
+# because chart versions evolved over time.
+env:
+  createRuntimeClasses: "true"
+  createDefaultRuntimeClass: "true"
+
+  # Make the default RuntimeClass ("kata") point at qemu
+  defaultShim: "qemu"
+  defaultShim_x86_64: "qemu"
+  defaultShim_aarch64: "qemu"
+  defaultShim_ppc64le: "qemu"
+  defaultShim_s390x: "qemu"
+
+  # Leave these empty unless you specifically need them
+  _experimentalForceGuestPull: ""
+  _experimentalForceGuestPull_aarch64: ""
+  _experimentalForceGuestPull_ppc64le: ""
+  _experimentalForceGuestPull_s390x: ""
+  _experimentalForceGuestPull_x86_64: ""
+  _experimentalSetupSnapshotter: ""
+  agentHttpsProxy: ""
+  agentNoProxy: ""
+  allowedHypervisorAnnotations: ""
+  hostOS: ""
+  installationPrefix: ""
+  multiInstallSuffix: ""
+  pullTypeMapping: ""
+  pullTypeMapping_aarch64: ""
+  pullTypeMapping_ppc64le: ""
+  pullTypeMapping_s390x: ""
+  pullTypeMapping_x86_64: ""
+  shims: ""
+  shims_aarch64: ""
+  shims_ppc64le: ""
+  shims_s390x: ""
+  shims_x86_64: ""
+  snapshotterHandlerMapping: ""
+  snapshotterHandlerMapping_aarch64: ""
+  snapshotterHandlerMapping_ppc64le: ""
+  snapshotterHandlerMapping_s390x: ""
+  snapshotterHandlerMapping_x86_64: ""
+
+image:
+  reference: quay.io/kata-containers/kata-deploy
+  tag: ""
+imagePullPolicy: Always
+imagePullSecrets: []
+
+# IMPORTANT: set this to your distro if needed (examples: rke2, k3s).
+# Leave as "k8s" if your chart docs say so for your environment.
+k8sDistribution: rke2
+
+node-feature-discovery:
+  enabled: false
+
+# Deploy kata-deploy only to worker nodes
+nodeSelector:
+  node-role.kubernetes.io/worker: "true"
+
+runtimeClasses:
+  enabled: true
+  createDefault: true
+  defaultName: kata
+
+# Enable only the popular/common ones.
+# Everything else is disabled to avoid extra RuntimeClasses and extra host requirements.
+shims:
+  qemu:
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+      - s390x
+      - ppc64le
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ""
+
+  cloud-hypervisor:
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ""
+
+  fc:
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: devmapper
+
+  # Disable duplicates / variants / special modes
+  clh:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ""
+
+  dragonball:
+    enabled: true
+    supportedArches:
+      - amd64
+      - arm64
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ""
+
+  qemu-cca:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-coco-dev:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-coco-dev-runtime-rs:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-nvidia-gpu:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ""
+
+  qemu-nvidia-gpu-snp:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-nvidia-gpu-tdx:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-runtime-rs:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    containerd:
+      snapshotter: ""
+
+  qemu-se:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-se-runtime-rs:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-snp:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+  qemu-tdx:
+    enabled: false
+    supportedArches: []
+    allowedHypervisorAnnotations: []
+    agent:
+      httpsProxy: ""
+      noProxy: ""
+    containerd:
+      forceGuestPull: false
+      snapshotter: ""
+    crio:
+      guestPull: false
+
+snapshotter:
+  setup: []
+
+tolerations: []
